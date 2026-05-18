@@ -1,27 +1,27 @@
 # RAPID - Real-time Acquisition Pipeline for IQ Data
 
-RAPID is a high-performance, real-time data acquisition and digital signal processing (DSP) pipeline designed for IQ (In-phase/Quadrature) data collection and analysis. It integrates hardware digitizers with optimized DSP stages to enable real-time processing of sampled RF signals.
+RAPID is a high-performance, real-time data acquisition and digital signal processing (DSP) pipeline designed for IQ (In-phase/Quadrature) data collection and analysis. It integrates hardware digitisers with optimised DSP stages to enable real-time processing of sampled signals.
 
 ## Overview
 
 RAPID combines several key components:
 
-- **Hardware Digitization**: Interface with CAEN digitizer hardware for high-speed signal acquisition
+- **Hardware Digitisation**: Interface with CAEN digitiser hardware for high-speed signal acquisition
 - **Real-time DSP Pipeline**: Multi-stage processing including downmixing, filtering, and spectral analysis
 - **MIDAS Integration**: Integration with the MIDAS data acquisition framework for flexible event handling and storage
-- **Optimized Processing**: Lock-free queues and CPU affinity for deterministic, low-latency performance
+- **Optimized Processing**: Lock-free queues and CPU affinity for low-latency performance
 
 ### Key Features
 
-- **Real-time Processing**: Multi-threaded pipeline architecture with CPU pinning for predictable performance
+- **Real-time Processing**: Multi-threaded pipeline architecture with CPU pinning for maximum performance
 - **Configurable DSP Stages**: Flexible signal processing pipeline including:
   - Downmixing (frequency translation)
   - Decimating FIR filtering
   - Welch Power Spectral Density (PSD) estimation
 - **Complex Signal Support**: Full I/Q (complex) signal handling throughout the pipeline
-- **Hardware Integration**: Support for CAEN FELib and Dig2 libraries for digitizer control
+- **Hardware Integration**: Support for CAEN FELib and Dig2 libraries for digitiser control
 - **FFTW Integration**: Fast Fourier Transform for spectral analysis using industry-standard FFTW3
-- **Prescaling & Accumulation**: Configurable data reduction with optional accumulation and normalization
+- **Prescaling & Accumulation**: Configurable data reduction with optional accumulation and normalisation
 
 ## Architecture
 
@@ -29,7 +29,7 @@ RAPID uses a modular, trait-based architecture:
 
 ```
 Digitizer → Downmixer → FIR Filter → Welch PSD → MIDAS Events
-   (Stage 0)   (Stage 1)   (Stage 2)    (Stage 3)
+(Stage 0)   (Stage 1)   (Stage 2)    (Stage 3)
 ```
 
 Each stage:
@@ -37,22 +37,6 @@ Each stage:
 - Communicates via lock-free queues (SPSC - Single Producer Single Consumer)
 - Supports data tapping for asynchronous snapshot capture
 - Produces configurable output (raw waveforms or processed spectra)
-
-### Pipeline Parameters
-
-Default configuration (configurable in `src/main_midas.cpp`):
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| **Sampling Rate (Fs)** | 62.5 MHz | Hardware digitizer sample rate |
-| **RF Frequency (f0)** | 6 MHz | Center frequency of interest |
-| **Mixing Frequency (fmix)** | 5 MHz | Downmixing frequency |
-| **FIR Taps** | 128 | Filter order |
-| **Decimation Factor** | 8 | Post-filter downsampling |
-| **Cutoff Frequency (Fc)** | 3 MHz | FIR filter cutoff |
-| **Buffer Size (N)** | 80,000 samples | Digitizer acquisition window |
-| **FFT Size** | 1000 | PSD FFT analysis window |
-| **FFT Overlap** | 100 | Welch PSD overlap |
 
 ## Building RAPID
 
@@ -66,6 +50,15 @@ Default configuration (configurable in `src/main_midas.cpp`):
 - **FFTW3** (Fast Fourier Transform library)
 - **MIDAS** (optional, for frontend integration)
 
+### Setup
+
+- First, need to set all relavent environment variables. See `bin/setup.sh` for an example script. Run via:
+
+```bash
+chmod +x bin/setup.sh
+source bin/setup.sh
+```
+
 ### Build Instructions
 
 ```bash
@@ -75,83 +68,56 @@ cmake ..
 cmake --build .
 ```
 
-#### Optional: Building without MIDAS
-
-To build without MIDAS support (standalone DSP testing):
-
-```bash
-cmake -DNO_MIDAS=ON ..
-cmake --build .
-```
-
-#### Specifying MIDAS Location
-
-If MIDAS is installed in a non-standard location:
-
-```bash
-export MIDASSYS=/path/to/midas
-cmake ..
-```
-
 ## Usage
-
-### As a MIDAS Frontend
-
-RAPID integrates with MIDAS as a frontend:
-
-```bash
-mserver &                    # Start MIDAS server
-fe -i midas &               # Start RAPID frontend
-odbedit                     # Configure via ODB
-```
-
-Configuration is accessible via ODB at `/Equipment/DAQ DSP/Settings`:
-
-```
-/Equipment/DAQ DSP/Settings
-  00/  (Digitizer raw waveforms)
-    type = "waveform"
-    sample_rate = 62500000
-  01/  (Downmixed waveforms)
-    type = "waveform"
-    sample_rate = 62500000
-  02/  (Filtered & decimated)
-    type = "waveform"
-    sample_rate = 7812500  (62.5 MHz / 8)
-  03/  (Power Spectral Density)
-    type = "psd"
-    sample_rate = 7812500
-```
 
 ### Configuring the DSP Pipeline
 
-Edit stage parameters in `src/main_midas.cpp`:
+- Edit stage parameters in `src/main_midas.cpp`:
 
-```cpp
-// Modify these constants before building:
-static constexpr double Fs = 62.5e6;      // Sampling rate
-static constexpr double f0 = 6e6;         // RF frequency
-static constexpr double fmix = 5e6;       // Mix frequency
-static constexpr std::size_t Decim = 8;   // Decimation factor
-// ... and others
+- Instantiate individual DSP stages and then wrap in DSP controllers. Use a producer frontend (e.g. CAEN digitiser) and DSP controllers to build a DAQ controller.
+  
+- Instantiate a pointer to the DAQ controller in `frontend_init()` and configure the ODB.
+  
+- Each stage in the DAQ controller has an entry in the MIDAS ODB (/Equipment/DAQ DSP/Settings). These settings provide webserver information, for example:
 
-// Prescaling: 0 = disabled, N = save every N-th buffer
-static constexpr uint32_t DIG_Prescale = 100;
-static constexpr uint32_t PSD_Prescale = 1;
+```
+meta["01"]["type"] = "waveform";
+    meta["01"]["title"] = "Downmixed Waveforms";
+    meta["01"]["x_unit"] = "Sample";
+    meta["01"]["y_unit"] = "V";
+    meta["01"]["sample_rate"] = axion::Fs;
+```
+
+  - This adds stage `01` to the ODB.
+  - `type` describes the type of data being showed. This can we either `waveform` of `fft`/`psd` (they are the same).
+  - `x_unit` and `y_unit` describe the axis units that are displayed on the webserver.
+  - `sample_rate` is the sampling rate of that signal.
+
+### Running RAPID
+
+- Once built, start RAPID using the `bin/start_midas.sh` script via:
+
+```bash
+chmod +x bin/start_midas.sh
+source bin/start_midas.sh
+```
+
+- This runs the MIDAS webserver on port 8080 and the plotting webserver on port 8090.
+  
+- RAPID can be stopped using the `bin/start_midas.sh` script via:
+
+```bash
+chmod +x bin/start_midas.sh
+source bin/start_midas.sh
 ```
 
 ### Running Tests
 
-Test programs are available in the `tests/` directory for individual components:
+- Test programs are available in the `tests/` directory for individual components. 
 
-```bash
-cd build
-# Compile with test target instead (see CMakeLists.txt)
-cmake -DTEST_BUILD=ON ..
-./tests/mixer_test
-./tests/filter_test
-./tests/psd_test
-```
+- To test DSP stages (.cpp), edit the CMake accordingly.
+  
+- To test efficiency (.py), the script can run with no CMake altering.
 
 ## Output Format
 
@@ -167,23 +133,21 @@ Example MIDAS bank layout for full pipeline:
 
 ```
 Event contains 10+ banks:
-  Ts0, Si0, Sq0  (Stage 0: raw I/Q from digitizer)
-  Ts1, Si1, Sq1  (Stage 1: downmixed I/Q)
-  Ts2, Si2, Sq2  (Stage 2: filtered, decimated I/Q)
-  Ts3, Si3, Sq3  (Stage 3: power spectral density)
+  Ts00, Si00, Sq00  (Stage 0: raw I/Q from digitizer)
+  Ts01, Si01, Sq01  (Stage 1: downmixed I/Q)
+  Ts02, Si02, Sq02  (Stage 2: filtered, decimated I/Q)
+  Ts03, Si03, Sq03  (Stage 3: power spectral density)
 ```
 
 ## Performance
 
-RAPID is optimized for low-latency, real-time operation:
+RAPID is optimised for low-latency, real-time operation:
 
 - **Lock-free Queues**: SPSC queues avoid kernel synchronization overhead
 - **CPU Pinning**: Thread-to-core affinity reduces cache misses and context switching
 - **Prefilled Buffer Pools**: Eliminates dynamic allocation in the hot path
 - **Data Accumulation**: Optional windowing reduces MIDAS event rate while maintaining quality
 - **Fast Math**: Compiled with `-O3 -ffast-math` for maximum throughput
-
-Typical performance: ~62.5M samples/second through full 4-stage pipeline with real-time DSP.
 
 ## Project Structure
 
@@ -205,8 +169,8 @@ RAPID/
 │   ├── mixer_test.cpp               # Test downmixer component
 │   ├── filter_test.cpp              # Test FIR filter
 │   └── psd_test.cpp                 # Test PSD estimation
-├── webserver/                       # Optional web interface components
-├── housekeeping/                    # Utility scripts
+├── webserver/                       # display web interface functionality
+├── housekeeping/                    # stream additional slow control data from Postgress database
 ├── CMakeLists.txt                   # Build configuration
 └── LICENSE                          # GPLv3 license
 ```
